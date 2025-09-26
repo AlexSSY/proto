@@ -41,32 +41,58 @@ class DSL
     when Telegram::Bot::Types::Message
       @handlers.each do |handler|
         filter = handler[:filter]
-        action = handler[:action]
+        actions = handler[:actions]
         if instance_eval(&filter)
-          instance_eval(&action)
+          actions.each { |action| instance_eval(&action) }
+          return
         end
       end
     end
   end
 
   def start
-    Telegram::Bot::Client.run(@config.token) do |bot|
-      @bot = bot
-      bot.listen do |message|
-        supply_message message
-      end
+    bot = Telegram::Bot::Client.new(@config.token)
+    @bot = bot
+
+    Signal.trap('INT') do
+      bot.stop
+    end
+
+    bot.listen do |message|
+      supply_message message
     end
   end
 
   def handlers &block
     @handlers = []
+    @states = {}
     instance_eval(&block)
   end
 
   def handle filter, &block
     @handler = { filter: filter }
+    @action_list = []
     instance_eval(&block)
+    @handler[:actions] = @action_list
     @handlers << @handler
+    @action_list = nil
+    @handler = nil
+  end
+
+  def handle_state name, &block
+    @handler = { filter: proc { @states[msg.from.id] == name } }
+    @action_list = []
+    @action_list << proc do
+      instance_variable_set "@#{@states[msg.from.id].to_s}", msg.text
+      define_singleton_method(@states[msg.from.id]) do
+        instance_variable_get "@#{@states[msg.from.id].to_s}"
+      end
+    end
+    instance_eval(&block)
+    @action_list << proc { @states[msg.from.id] = nil }
+    @handler[:actions] = @action_list
+    @handlers << @handler
+    @action_list = nil
     @handler = nil
   end
 
@@ -74,13 +100,24 @@ class DSL
     proc { msg.text == "/#{name.to_s}" }
   end
 
-  def answer keyboard:, &block
-    action = proc do
+  def text
+    proc { true }
+  end
+
+  def answer keyboard_name: false, &block
+    @action_list << proc do
       txt = instance_eval(&block)
-      kb = @keyboards[keyboard]
-      bot.api.send_message(chat_id: msg.chat.id, text: txt, reply_markup: kb)
+      if keyboard_name
+        kb = @keyboards[keyboard_name]
+        bot.api.send_message(chat_id: msg.chat.id, text: txt, reply_markup: kb)
+      else
+        bot.api.send_message(chat_id: msg.chat.id, text: txt)
+      end
     end
-    @handler[:action] = action
+  end
+
+  def recv state
+    @action_list << proc { @states[msg.from.id] = state }
   end
 
   def keyboards &block
@@ -118,7 +155,13 @@ end
 
 @dsl.handlers do
   handle command(:start) do
-    answer(keyboard: :main) { "Hello #{msg.from.first_name}!" }
+    answer(keyboard_name: :main) { "Hello #{msg.from.first_name}!" }
+    answer { "Enter please your age:" }
+    recv :age
+  end
+
+  handle_state :age do
+    answer { "Great (#{msg.from.first_name}) your age: #{age}" }
   end
 end
 
