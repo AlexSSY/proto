@@ -17,8 +17,3 @@ class Runner
     
   end
 end
-
-Fiber.new do
-  instance_eval(&proc1)
-  context = Fiber.yield
-end

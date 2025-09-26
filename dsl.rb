@@ -3,6 +3,20 @@ require "telegram/bot"
 require "dotenv/load"
 require "debug"
 
+class Compare
+  def initialize value
+    @value = value
+  end
+
+  def ne value
+    
+  end
+
+  def ge value
+    
+  end
+end
+
 class Keyboard
   def initialize
     @rows = []
@@ -104,6 +118,15 @@ class DSL
     proc { true }
   end
 
+  def the name
+    value = send(name)
+    Compare.new(value)
+  end
+
+  def ne prc
+    
+  end
+
   def answer keyboard_name: false, &block
     @action_list << proc do
       txt = instance_eval(&block)
@@ -160,9 +183,14 @@ end
     recv :age
   end
 
-  handle_state :age do
-    
-    answer { "Great (#{msg.from.first_name}) your age: #{age}" }
+  handle text, state: :age do
+    the(:age).ne(18) do
+      answer { "Great (#{msg.from.first_name}) your age: #{age}" }
+    end
+
+    the(:age).ge(18) do
+      answer { "Sad (#{msg.from.first_name}) your age: #{age}" }
+    end
   end
 end
 
